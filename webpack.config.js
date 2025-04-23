@@ -1,16 +1,20 @@
 const path = require("path");
 const HtmlWebpackPlugin = require("html-webpack-plugin");
-const BundleAnalyzerPlugin = require('webpack-bundle-analyzer').BundleAnalyzerPlugin;
+const BundleAnalyzerPlugin =
+  require("webpack-bundle-analyzer").BundleAnalyzerPlugin;
 
 module.exports = {
   mode: "development",
-  entry: "./index.tsx",
+  entry: path.resolve(__dirname, "./src/index.tsx"),
   output: {
     path: path.resolve(__dirname, "./dist"),
     filename: "bundle.js",
   },
   resolve: {
-    extensions: [".tsx", ".ts", ".jsx", ".js"],
+    alias: {
+      "@": path.resolve(__dirname, "src/"),
+    },
+    extensions: [".tsx", ".ts", ".jsx", ".js", "json"],
   },
   module: {
     rules: [
@@ -25,7 +29,7 @@ module.exports = {
     new HtmlWebpackPlugin({
       template: path.resolve(__dirname, "./public/index.html"),
     }),
-    // new BundleAnalyzerPlugin()
+    new BundleAnalyzerPlugin(),
   ],
   devServer: {
     static: {
