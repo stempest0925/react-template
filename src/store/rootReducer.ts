@@ -1,4 +1,4 @@
-import counterReducer from "@/features/counterReducer";
+import counterReducer from "@/features/counter/slice";
 
 const rootReducer = {
   counter: counterReducer,

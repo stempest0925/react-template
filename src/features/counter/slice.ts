@@ -1,13 +1,19 @@
 import { createSlice } from "@reduxjs/toolkit";
 import type { PayloadAction } from "@reduxjs/toolkit";
+
 import { AppState } from "@/store";
+import { fetchCounterAsync } from "./actions";
 
 interface CounterState {
   value: number;
+  state: "idle" | "loading" | "succeeded" | "failed";
+  error: string | null;
 }
 
 const initialState: CounterState = {
   value: 0,
+  state: "idle",
+  error: null,
 };
 
 export const counterSlice = createSlice({
@@ -23,6 +29,19 @@ export const counterSlice = createSlice({
     incrementByAmount: (state, action: PayloadAction<number>) => {
       state.value += action.payload;
     },
+  },
+  extraReducers: (builder) => {
+    builder
+      .addCase(fetchCounterAsync.request, (state) => {
+        state.state = "loading";
+      })
+      .addCase(fetchCounterAsync.success, (state, action) => {
+        state.state = "succeeded";
+        state.value = action.payload;
+      })
+      .addCase(fetchCounterAsync.failure, (state, action) => {
+        state.error = action.payload.message;
+      });
   },
 });
 
