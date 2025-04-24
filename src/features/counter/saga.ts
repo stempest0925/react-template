@@ -4,8 +4,7 @@ import { fetchCountAsync } from "./actions";
 function* fetchCounterSaga() {
   try {
     const response = yield* call(
-      (): Promise<number> =>
-        new Promise((resolve) => setTimeout(() => resolve(100), 1000))
+      (): Promise<number> => new Promise((resolve) => setTimeout(() => resolve(100), 1000))
     );
     yield* put(fetchCountAsync.success(response));
   } catch (error) {

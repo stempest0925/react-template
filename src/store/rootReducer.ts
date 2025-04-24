@@ -1,7 +1,7 @@
 import counterReducer from "@/features/counter/slice";
 
 const rootReducer = {
-  counter: counterReducer,
+  counter: counterReducer
 };
 
 export default rootReducer;

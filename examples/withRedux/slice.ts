@@ -13,7 +13,7 @@ interface CounterState {
 const initialState: CounterState = {
   value: 0,
   state: "idle",
-  error: null,
+  error: null
 };
 
 export const counterSlice = createSlice({
@@ -28,7 +28,7 @@ export const counterSlice = createSlice({
     },
     incrementByAmount: (state, action: PayloadAction<number>) => {
       state.value += action.payload;
-    },
+    }
   },
   extraReducers: (builder) => {
     builder
@@ -42,7 +42,7 @@ export const counterSlice = createSlice({
       .addCase(fetchCountAsync.failure, (state, action) => {
         state.error = action.payload.message;
       });
-  },
+  }
 });
 
 export const { increment, decrement, incrementByAmount } = counterSlice.actions;
