@@ -1,9 +1,9 @@
-import { createAsyncAction, ActionType } from "typesafe-actions";
+import { createAction } from "@reduxjs/toolkit";
 
-export const fetchCounterAsync = createAsyncAction(
-  "counter/fetchRequest",
-  "counter/fetchSuccess",
-  "counter/fetchFailure"
-)<void, number, Error>();
+export const fetchCountAsync = {
+  request: createAction<void>("counter/fetchRequest"),
+  success: createAction<number>("counter/fetchSuccess"),
+  failure: createAction<Error>("counter/fetchFailure"),
+};
 
 // export type CounterAction = ActionType<typeof fetchCounterAsync>;
