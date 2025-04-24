@@ -7,7 +7,8 @@
     "lint": "npx eslint .",
     "lint:fix": "npx eslint . --fix",
     "prettier": "npx prettier src/ --check",
-    "prettier:fix": "npx prettier src/ --write"
+    "prettier:fix": "npx prettier src/ --write",
+    "prepare": "npx husky"
   },
   "keywords": [],
   "author": "",
@@ -26,6 +27,8 @@
     "@babel/preset-env": "^7.26.9",
     "@babel/preset-react": "^7.26.3",
     "@babel/preset-typescript": "^7.27.0",
+    "@commitlint/cli": "^19.8.0",
+    "@commitlint/config-conventional": "^19.8.0",
     "@types/react": "^19.1.2",
     "@types/react-dom": "^19.1.2",
     "@typescript-eslint/eslint-plugin": "^8.31.0",
@@ -38,6 +41,8 @@
     "eslint-plugin-react": "^7.37.5",
     "eslint-plugin-react-hooks": "^5.2.0",
     "html-webpack-plugin": "^5.6.3",
+    "husky": "^9.1.7",
+    "lint-staged": "^15.5.1",
     "prettier": "^3.5.3",
     "typescript": "^5.8.3",
     "webpack": "^5.99.5",
