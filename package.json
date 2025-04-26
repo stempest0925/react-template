@@ -4,6 +4,7 @@
   "main": "index.js",
   "scripts": {
     "dev": "npx webpack serve",
+    "build": "npx webpack build",
     "lint": "npx eslint .",
     "lint:fix": "npx eslint . --fix",
     "prettier": "npx prettier src/ --check",
