@@ -1,0 +1,14 @@
+chore(git) React Template Building Step 1.6
+1. 添加了git hooks。
+2. 针对提交时进行eslint修复、prettier格式化。
+3. 针对提交时进行message规范校验。
+
+
+
+创建一个git仓库，用于编写template架构设计的awsome教程
+
+
+JS执行上下文
+原型与原型链
+闭包
+原始类型和引用类型

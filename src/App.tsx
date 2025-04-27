@@ -6,9 +6,10 @@ import React from "react";
 function App() {
   // const dispatch = useAppDispatch();
   // dispatch(fetchCountAsync.request());
+  console.log(new Error("1")); // source-map 开启后可以快速定位到这里的错误
   return (
     <div className="App">
-      <h1>this is web app with react lib</h1>
+      <h1>this is web app with react lib1</h1>
     </div>
   );
 }

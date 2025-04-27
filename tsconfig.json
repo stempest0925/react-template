@@ -20,7 +20,13 @@
       "@/*": ["src/*"]
     },
     "downlevelIteration": true,
-    "noUncheckedIndexedAccess": true
+    "noUncheckedIndexedAccess": true,
+    "sourceMap": true
   },
-  "include": ["src"]
+  // "include": ["src"],
+  "ts-node": {
+    "compilerOptions": {
+      "module": "CommonJS"
+    }
+  }
 }
