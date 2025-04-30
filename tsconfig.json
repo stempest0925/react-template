@@ -23,7 +23,7 @@
     "noUncheckedIndexedAccess": true,
     "sourceMap": true
   },
-  // "include": ["src"],
+  "include": ["src/**/*.d.ts", "src/**/*.ts", "src/**/*.tsx"],
   "ts-node": {
     "compilerOptions": {
       "module": "CommonJS"
