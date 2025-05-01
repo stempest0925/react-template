@@ -1,3 +1,5 @@
+import { networkTracker, NetworkTracker } from "./networkTracker";
+
 type SendBatchType = {
   id: string;
   attempts: number;
@@ -11,6 +13,13 @@ class TrackingTransmitter {
   private SendQueue: SendBatchType[] = []; // 发送队列
   private readonly RETRY_COUNT = 3; // 发送重试的次数
 
+  private networkTacker = networkTracker;
+
+  constructor() {
+    this.networkTacker.subscribe((state) => {
+      if (state === "online" && this.SendQueue.length > 0) this.flush();
+    });
+  }
   // 添加数据并检查阈值，添加到发送队列
   add(data: any): void {
     this.ThresholdQueue.push(data);
@@ -21,6 +30,14 @@ class TrackingTransmitter {
         data: this.ThresholdQueue
       });
       this.ThresholdQueue = [];
+    }
+  }
+
+  tryFlush() {
+    if (this.networkTacker.currentState === "online") {
+      this.flush();
+    } else {
+      // 通过IndexDB存储
     }
   }
 
