@@ -1,3 +1,8 @@
+type InitializeParamsType = {
+  storeName: string;
+  indexes: string | string[];
+};
+
 export default class IndexedDBAdapter {
   private db: IDBDatabase | null = null;
 
@@ -5,27 +10,47 @@ export default class IndexedDBAdapter {
     this.dbName = dbName;
   }
 
-  private async initialize(
-    storeName: string | string[],
-    indexes: string | string[]
-  ): Promise<IDBDatabase> {
-    if (this.db) return this.db;
-
+  private async initialize<T extends InitializeParamsType>(params: T | T[]): Promise<IDBDatabase> {
     return new Promise<IDBDatabase>((resolve, reject) => {
+      if (this.db) {
+        resolve(this.db);
+        return;
+      }
+
+      let _params: T[];
+      if (Array.isArray(params)) {
+        if (params.length === 0) {
+          // Object.keys(params[0]).length === 0
+          reject(new Error("Initialize DB not params."));
+          return;
+        }
+      } else {
+        if (Object.keys(params).length === 0) {
+          reject(new Error("Initialize DB not params."));
+          return;
+        }
+        _params = [params];
+      }
+
       const request = indexedDB.open(this.dbName, 1);
 
       request.onupgradeneeded = (event) => {
         const db = (event.target as IDBOpenDBRequest).result;
 
-        if (Array.isArray(storeName)) {
-          storeName.forEach((storeItem) => {
-            if (!db.objectStoreNames.contains(storeItem))
-              db.createObjectStore(storeItem, { autoIncrement: true });
-          });
-        } else {
-          if (!db.objectStoreNames.contains(storeName))
-            db.createObjectStore(storeName, { autoIncrement: true });
-        }
+        _params.forEach((item) => {
+          if (!db.objectStoreNames.contains(item.storeName)) {
+            const store = db.createObjectStore(item.storeName, { autoIncrement: true });
+            if (item.indexes) {
+              if (Array.isArray(item.indexes) && item.indexes.length > 0) {
+                item.indexes.forEach((index) => {
+                  store.createIndex(index, index, { unique: false });
+                });
+              } else {
+                store.createIndex(item.indexes, item.indexes, { unique: false });
+              }
+            }
+          }
+        });
       };
 
       request.onsuccess = (event) => {
@@ -35,6 +60,10 @@ export default class IndexedDBAdapter {
 
       request.onerror = (event) => (event.target as IDBOpenDBRequest).error;
     });
+  }
+
+  public get DB(): IDBDatabase | null {
+    return this.db;
   }
 
   private async executeTransaction(
