@@ -111,7 +111,62 @@ export default class IndexedDBAdapter {
     });
   }
 
-  async delete(storeName: string, indexes: number | number[]): Promise<void> {
-    return this.executeTransaction(storeName, "readwrite", (store) => store.delete(indexes));
+  // async delete(storeName: string, indexes: number | number[]): Promise<void> {
+  //   return this.executeTransaction(storeName, "readwrite", (store) => store.delete(indexes));
+  // }
+
+  async delete(storeName: string, keys: number | number[]): Promise<boolean> {
+    return new Promise((resolve, reject: (reason: Error) => void) => {
+      if (!this.db) {
+        reject(new Error("Database not initialize."));
+        return;
+      }
+
+      const _keys = Array.isArray(keys) ? keys : [keys];
+      const transaction = this.db.transaction(storeName, "readwrite");
+      const store = transaction.objectStore(storeName);
+
+      _keys.forEach((key) => store.delete(key));
+
+      transaction.oncomplete = () => resolve(true);
+      transaction.onerror = (event) =>
+        reject((event.target as IDBRequest).error || new Error("Delete transaction failed."));
+    });
+  }
+
+  async deleteByQuery(options: {
+    storeName: string;
+    indexName: string;
+    keyRange: IDBKeyRange;
+    direction: IDBCursorDirection;
+    limit: number;
+  }): Promise<boolean> {
+    return new Promise((resolve, reject: (reason: Error) => void) => {
+      if (!this.db) {
+        reject(new Error("Database not initialized."));
+        return;
+      }
+
+      const transaction = this.db.transaction(options.storeName, "readwrite");
+      const store = transaction.objectStore(options.storeName);
+      const source = options.indexName ? store.index(options.indexName) : store;
+      const request = source.openCursor(options.keyRange, options.direction);
+      let deleteCount = 0;
+
+      request.onsuccess = (event) => {
+        const cursor = (event.target as IDBRequest<IDBCursorWithValue>).result;
+
+        if (cursor && deleteCount < options.limit) {
+          cursor.delete();
+          deleteCount++;
+          cursor.continue();
+        } else {
+          resolve(true);
+        }
+      };
+
+      request.onerror = (event) =>
+        reject((event.target as IDBRequest).error || new Error("Query delete transaction failed."));
+    });
   }
 }
