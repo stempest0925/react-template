@@ -115,7 +115,7 @@ export default class IndexedDBAdapter {
   //   return this.executeTransaction(storeName, "readwrite", (store) => store.delete(indexes));
   // }
 
-  async delete(storeName: string, keys: number | number[]): Promise<boolean> {
+  async delete(storeName: string, keys: number | number[]): Promise<number> {
     return new Promise((resolve, reject: (reason: Error) => void) => {
       if (!this.db) {
         reject(new Error("Database not initialize."));
@@ -125,10 +125,16 @@ export default class IndexedDBAdapter {
       const _keys = Array.isArray(keys) ? keys : [keys];
       const transaction = this.db.transaction(storeName, "readwrite");
       const store = transaction.objectStore(storeName);
+      let deleteCount = 0;
 
-      _keys.forEach((key) => store.delete(key));
+      _keys.forEach((key) => {
+        const request = store.delete(key);
+        request.onsuccess = () => deleteCount++;
+        request.onerror = (event) =>
+          console.error(`Failed to delete key ${key}`, (event.target as IDBRequest).error);
+      });
 
-      transaction.oncomplete = () => resolve(true);
+      transaction.oncomplete = () => resolve(deleteCount);
       transaction.onerror = (event) =>
         reject((event.target as IDBRequest).error || new Error("Delete transaction failed."));
     });
@@ -136,9 +142,9 @@ export default class IndexedDBAdapter {
 
   async deleteByQuery(options: {
     storeName: string;
-    indexName: string;
-    keyRange: IDBKeyRange;
-    direction: IDBCursorDirection;
+    indexName?: string;
+    keyRange?: IDBKeyRange;
+    direction?: IDBCursorDirection;
     limit: number;
   }): Promise<boolean> {
     return new Promise((resolve, reject: (reason: Error) => void) => {
@@ -146,17 +152,19 @@ export default class IndexedDBAdapter {
         reject(new Error("Database not initialized."));
         return;
       }
+      const { limit = 30 } = options;
 
       const transaction = this.db.transaction(options.storeName, "readwrite");
       const store = transaction.objectStore(options.storeName);
       const source = options.indexName ? store.index(options.indexName) : store;
       const request = source.openCursor(options.keyRange, options.direction);
+
       let deleteCount = 0;
 
       request.onsuccess = (event) => {
         const cursor = (event.target as IDBRequest<IDBCursorWithValue>).result;
 
-        if (cursor && deleteCount < options.limit) {
+        if (cursor && deleteCount < limit) {
           cursor.delete();
           deleteCount++;
           cursor.continue();
@@ -166,6 +174,9 @@ export default class IndexedDBAdapter {
       };
 
       request.onerror = (event) =>
+        reject((event.target as IDBRequest).error || new Error("Query delete cursor failed."));
+
+      transaction.onerror = (event) =>
         reject((event.target as IDBRequest).error || new Error("Query delete transaction failed."));
     });
   }

@@ -1,4 +1,4 @@
-import { networkTracker, NetworkTracker } from "./networkTracker";
+import { networkTracker } from "./NetworkTracker";
 
 type SendBatchType = {
   id: string;
@@ -14,7 +14,7 @@ class TrackingTransmitter {
   private readonly RETRY_COUNT = 3; // 发送重试的次数
 
   private networkTacker = networkTracker;
-
+  // 先完成数据的采集，在考虑存储和发送的事情。
   constructor() {
     this.networkTacker.subscribe((state) => {
       if (state === "online" && this.SendQueue.length > 0) this.flush();
