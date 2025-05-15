@@ -1,7 +1,12 @@
-type InitializeParamsType = {
+interface IndexConfig extends IDBIndexParameters {
+  name: string;
+  keyPath?: string | string[];
+}
+interface StoreConfig extends IDBObjectStoreParameters {
   storeName: string;
-  indexes: string | string[];
-};
+  indexes?: (string | IndexConfig)[];
+}
+type InitializeOptions = StoreConfig | StoreConfig[];
 
 export default class IndexedDBAdapter {
   private db: IDBDatabase | null = null;
@@ -10,174 +15,84 @@ export default class IndexedDBAdapter {
     this.dbName = dbName;
   }
 
-  private async initialize<T extends InitializeParamsType>(params: T | T[]): Promise<IDBDatabase> {
-    return new Promise<IDBDatabase>((resolve, reject) => {
-      if (this.db) {
-        resolve(this.db);
-        return;
-      }
+  public async initialize(options: InitializeOptions) {
+    if (this.db) return this.db;
 
-      let _params: T[];
-      if (Array.isArray(params)) {
-        if (params.length === 0) {
-          // Object.keys(params[0]).length === 0
-          reject(new Error("Initialize DB not params."));
-          return;
-        }
-      } else {
-        if (Object.keys(params).length === 0) {
-          reject(new Error("Initialize DB not params."));
-          return;
-        }
-        _params = [params];
-      }
+    try {
+      // 参数归一化处理
+      const _options = Array.isArray(options) ? options : [options];
 
-      const request = indexedDB.open(this.dbName, 1);
+      this.db = await this.openDatabase(_options);
+      return this.db;
+    } catch (error) {
+      console.error(error);
+    }
+  }
+
+  // private validateOptions() {
+  //   let _options: T[];
+  //   if (Array.isArray(options)) {
+  //     // 数组参数校验
+  //     if (options.length === 0) {
+  //       reject(new Error("Initialize DB not options."));
+  //       return;
+  //     }
+  //   } else {
+  //     // 对象参数校验
+  //     if (Object.keys(options).length === 0) {
+  //       reject(new Error("Initialize DB not options."));
+  //       return;
+  //     }
+  //     // 将对象转为数组便于后续统一操作
+  //     _options = [options];
+  //   }
+  // }
+
+  private openDatabase(options: StoreConfig[]): Promise<IDBDatabase> {
+    return new Promise((resolve, reject) => {
+      const request = indexedDB.open(this.dbName);
 
       request.onupgradeneeded = (event) => {
         const db = (event.target as IDBOpenDBRequest).result;
+        this.processStore(db, options);
+      };
 
-        _params.forEach((item) => {
-          if (!db.objectStoreNames.contains(item.storeName)) {
-            const store = db.createObjectStore(item.storeName, { autoIncrement: true });
-            if (item.indexes) {
-              if (Array.isArray(item.indexes) && item.indexes.length > 0) {
-                item.indexes.forEach((index) => {
-                  store.createIndex(index, index, { unique: false });
-                });
-              } else {
-                store.createIndex(item.indexes, item.indexes, { unique: false });
-              }
-            }
-          }
+      request.onsuccess = (event) => {
+        const db = (event.target as IDBOpenDBRequest).result;
+        resolve(db);
+      };
+
+      request.onerror = (event) => {
+        const error = (event.target as IDBOpenDBRequest).error;
+        reject(error || new Error("Initialize Database failed."));
+      };
+    });
+  }
+
+  // 暂时只对未创建过的store进行index创建，已存在的store，默认已有index，可开放其他方法进行index创建
+  private processStore(db: IDBDatabase, configs: StoreConfig[]) {
+    configs.forEach((config) => {
+      if (!db.objectStoreNames.contains(config.storeName)) {
+        const store = db.createObjectStore(config.storeName, {
+          keyPath: config.keyPath,
+          autoIncrement: config.autoIncrement ?? true
         });
-      };
 
-      request.onsuccess = (event) => {
-        this.db = (event.target as IDBOpenDBRequest).result;
-        resolve(this.db);
-      };
-
-      request.onerror = (event) => (event.target as IDBOpenDBRequest).error;
+        this.processIndexes(store, config.indexes);
+      }
     });
   }
 
-  public get DB(): IDBDatabase | null {
-    return this.db;
-  }
+  private processIndexes(store: IDBObjectStore, indexes?: (string | IndexConfig)[]) {
+    if (indexes) {
+      indexes.forEach((index) => {
+        const indexObj = typeof index === "string" ? { name: index } : index;
+        const { name, keyPath = name, unique = false, multiEntry = false } = indexObj;
 
-  private async executeTransaction(
-    storeName: string,
-    mode: IDBTransactionMode,
-    operation: (store: IDBObjectStore) => void
-  ): Promise<void> {
-    return new Promise((resolve, reject) => {
-      if (!this.db) {
-        reject(new Error("Database not initialized."));
-        return;
-      }
-
-      const transaction = this.db.transaction(storeName, mode);
-      const store = transaction.objectStore(storeName);
-
-      operation(store);
-
-      transaction.oncomplete = () => resolve();
-      transaction.onerror = (event) => reject((event.target as IDBRequest).error);
-    });
-  }
-
-  async add<T extends Record<string, any>>(storeName: string, items: T | T[]): Promise<void> {
-    // 校验数据格式
-    if (Array.isArray(items)) {
-      if (items.length === 0) {
-        throw new Error("Cannot add empty array.");
-      }
-    } else {
-      if (Object.keys(items).length === 0) {
-        throw new Error("Cannot add empty object.");
-      }
-      items = [items];
-    }
-
-    return this.executeTransaction(storeName, "readwrite", (store) => {
-      items.forEach((dataItem) => store.add(dataItem));
-    });
-  }
-
-  async update<T extends Record<string, any>>(storeName: string, items: T | T[]): Promise<void> {
-    return this.executeTransaction(storeName, "readwrite", (store) => {
-      store.put(items);
-    });
-  }
-
-  // async delete(storeName: string, indexes: number | number[]): Promise<void> {
-  //   return this.executeTransaction(storeName, "readwrite", (store) => store.delete(indexes));
-  // }
-
-  async delete(storeName: string, keys: number | number[]): Promise<number> {
-    return new Promise((resolve, reject: (reason: Error) => void) => {
-      if (!this.db) {
-        reject(new Error("Database not initialize."));
-        return;
-      }
-
-      const _keys = Array.isArray(keys) ? keys : [keys];
-      const transaction = this.db.transaction(storeName, "readwrite");
-      const store = transaction.objectStore(storeName);
-      let deleteCount = 0;
-
-      _keys.forEach((key) => {
-        const request = store.delete(key);
-        request.onsuccess = () => deleteCount++;
-        request.onerror = (event) =>
-          console.error(`Failed to delete key ${key}`, (event.target as IDBRequest).error);
-      });
-
-      transaction.oncomplete = () => resolve(deleteCount);
-      transaction.onerror = (event) =>
-        reject((event.target as IDBRequest).error || new Error("Delete transaction failed."));
-    });
-  }
-
-  async deleteByQuery(options: {
-    storeName: string;
-    indexName?: string;
-    keyRange?: IDBKeyRange;
-    direction?: IDBCursorDirection;
-    limit: number;
-  }): Promise<boolean> {
-    return new Promise((resolve, reject: (reason: Error) => void) => {
-      if (!this.db) {
-        reject(new Error("Database not initialized."));
-        return;
-      }
-      const { limit = 30 } = options;
-
-      const transaction = this.db.transaction(options.storeName, "readwrite");
-      const store = transaction.objectStore(options.storeName);
-      const source = options.indexName ? store.index(options.indexName) : store;
-      const request = source.openCursor(options.keyRange, options.direction);
-
-      let deleteCount = 0;
-
-      request.onsuccess = (event) => {
-        const cursor = (event.target as IDBRequest<IDBCursorWithValue>).result;
-
-        if (cursor && deleteCount < limit) {
-          cursor.delete();
-          deleteCount++;
-          cursor.continue();
-        } else {
-          resolve(true);
+        if (!store.indexNames.contains(name)) {
+          store.createIndex(name, keyPath, { unique, multiEntry });
         }
-      };
-
-      request.onerror = (event) =>
-        reject((event.target as IDBRequest).error || new Error("Query delete cursor failed."));
-
-      transaction.onerror = (event) =>
-        reject((event.target as IDBRequest).error || new Error("Query delete transaction failed."));
-    });
+      });
+    }
   }
 }

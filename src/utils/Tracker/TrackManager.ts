@@ -9,11 +9,19 @@
 
 export default class TrackManager {
   private trackingData: TrackingPayloadType[] = [];
-  private readonly THRESHOLD: number = 30;
-  private saveQueue: TrackingPayloadType[] = [];
+  private saveQueue: TrackingPayloadType[][] = [];
+
+  constructor(private readonly THRESHOLD: number = 30) {}
 
   // 添加埋点数据
-  public push() {}
+  public push(data: TrackingPayloadType) {
+    this.trackingData.push(data);
+
+    if (this.trackingData.length >= this.THRESHOLD) {
+      this.saveQueue.push(this.trackingData);
+      this.trackingData = [];
+    }
+  }
 
   // 持久化埋点数据
   public save() {}
