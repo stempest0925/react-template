@@ -97,6 +97,87 @@ export default class IndexedDBAdapter {
     }
   }
 
+  public query(
+    storeName: string,
+    options: {
+      index?: string;
+      keyRange?: IDBKeyRange;
+      direction?: IDBCursorDirection;
+      limit?: number;
+    }
+  ): Promise<Record<string, any>[]> {
+    return new Promise((resolve, reject) => {
+      if (!this.db) {
+        reject(new Error("Database not initialize."));
+        return;
+      }
+
+      const { limit = 30 } = options;
+      const transaction = this.db.transaction(storeName, "readonly");
+      const store = transaction.objectStore(storeName);
+      const source = options.index ? store.index(options.index) : store;
+      const request = source.openCursor(options.keyRange, options.direction);
+
+      const queryData: Record<string, any>[] = [];
+
+      request.onsuccess = (event) => {
+        const cursor = (event.target as IDBRequest<IDBCursorWithValue>).result;
+
+        if (cursor && queryData.length < limit) {
+          queryData.push(cursor.value);
+          cursor.continue();
+        } else {
+          resolve(queryData);
+        }
+      };
+      transaction.oncomplete = () => {
+        // TODO: 可移除，测试触发时机
+        console.log("transaction complete");
+      };
+
+      request.onerror = () => {
+        reject(new Error("Query cursor transaction failed."));
+      };
+      transaction.onerror = () => {
+        reject(new Error("Query transaction failed."));
+      };
+    });
+  }
+
+  public add<T extends Record<string, any>>(storeName: string, data: T | T[]): Promise<number> {
+    return new Promise((resolve, reject) => {
+      if (!this.db) {
+        reject(new Error("Database not initialize."));
+        return;
+      }
+
+      // 参数归一化
+      const _data = Array.isArray(data) ? data : [data];
+
+      const transaction = this.db.transaction(storeName, "readwrite");
+      const store = transaction.objectStore(storeName);
+
+      let addCount = 0;
+
+      _data.forEach((dataItem) => {
+        const request = store.add(dataItem);
+
+        request.onsuccess = () => addCount++;
+        request.onerror = () => {
+          // TODO: 可记录，错误埋点的警告级别
+          console.warn(`Failed to add dataItem:`, dataItem);
+        };
+      });
+
+      transaction.oncomplete = () => {
+        resolve(addCount);
+      };
+      transaction.onerror = () => {
+        reject(new Error("Add data transaction failed."));
+      };
+    });
+  }
+
   /**
    * 通过Keys删除
    * @param storeName
@@ -110,9 +191,10 @@ export default class IndexedDBAdapter {
         return;
       }
 
+      // 参数归一化
       const _keys = Array.isArray(keys) ? keys : [keys];
 
-      const transaction = this.db.transaction(storeName);
+      const transaction = this.db.transaction(storeName, "readwrite");
       const store = transaction.objectStore(storeName);
 
       let deleteCount = 0;
@@ -148,7 +230,7 @@ export default class IndexedDBAdapter {
       index?: string;
       keyRange?: IDBKeyRange;
       direction?: IDBCursorDirection;
-      limit: number;
+      limit?: number;
     }
   ): Promise<number> {
     return new Promise((resolve, reject) => {
@@ -158,7 +240,7 @@ export default class IndexedDBAdapter {
       }
 
       const { limit = 30 } = options;
-      const transaction = this.db.transaction(storeName);
+      const transaction = this.db.transaction(storeName, "readwrite");
       const store = transaction.objectStore(storeName);
       const source = options.index ? store.index(options.index) : store;
       const request = source.openCursor(options.keyRange, options.direction);
