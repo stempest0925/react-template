@@ -15,6 +15,10 @@ export default class IndexedDBAdapter {
     this.dbName = dbName;
   }
 
+  /**
+   * 初始化
+   * @param options
+   */
   public async initialize(options: InitializeOptions) {
     if (this.db) return this.db;
 
@@ -25,29 +29,16 @@ export default class IndexedDBAdapter {
       this.db = await this.openDatabase(_options);
       return this.db;
     } catch (error) {
+      // TODO: 添加错误收集或处理
       console.error(error);
     }
   }
 
-  // private validateOptions() {
-  //   let _options: T[];
-  //   if (Array.isArray(options)) {
-  //     // 数组参数校验
-  //     if (options.length === 0) {
-  //       reject(new Error("Initialize DB not options."));
-  //       return;
-  //     }
-  //   } else {
-  //     // 对象参数校验
-  //     if (Object.keys(options).length === 0) {
-  //       reject(new Error("Initialize DB not options."));
-  //       return;
-  //     }
-  //     // 将对象转为数组便于后续统一操作
-  //     _options = [options];
-  //   }
-  // }
-
+  /**
+   * 打开数据库
+   * @param options
+   * @returns db
+   */
   private openDatabase(options: StoreConfig[]): Promise<IDBDatabase> {
     return new Promise((resolve, reject) => {
       const request = indexedDB.open(this.dbName);
@@ -69,7 +60,12 @@ export default class IndexedDBAdapter {
     });
   }
 
-  // 暂时只对未创建过的store进行index创建，已存在的store，默认已有index，可开放其他方法进行index创建
+  /**
+   * 处理 Store
+   * @param db
+   * @param configs
+   * @description 暂时只对未创建过的store进行index创建，已存在的store，默认当做已有index，可开放其他方法进行index创建
+   */
   private processStore(db: IDBDatabase, configs: StoreConfig[]) {
     configs.forEach((config) => {
       if (!db.objectStoreNames.contains(config.storeName)) {
@@ -83,6 +79,11 @@ export default class IndexedDBAdapter {
     });
   }
 
+  /**
+   * 处理 Index
+   * @param store
+   * @param indexes
+   */
   private processIndexes(store: IDBObjectStore, indexes?: (string | IndexConfig)[]) {
     if (indexes) {
       indexes.forEach((index) => {
@@ -94,5 +95,98 @@ export default class IndexedDBAdapter {
         }
       });
     }
+  }
+
+  /**
+   * 通过Keys删除
+   * @param storeName
+   * @param keys
+   * @returns deleteCount
+   */
+  private deleteByKeys(storeName: string, keys: number | number[]): Promise<number> {
+    return new Promise((resolve, reject) => {
+      if (!this.db) {
+        reject(new Error("Database not initialize."));
+        return;
+      }
+
+      const _keys = Array.isArray(keys) ? keys : [keys];
+
+      const transaction = this.db.transaction(storeName);
+      const store = transaction.objectStore(storeName);
+
+      let deleteCount = 0;
+
+      _keys.forEach((key) => {
+        const request = store.delete(key);
+
+        request.onsuccess = () => deleteCount++;
+        request.onerror = () => {
+          // TODO: 可记录，错误埋点的警告级别
+          console.warn(`Failed to Delete key ${key}.`);
+        };
+      });
+
+      transaction.oncomplete = () => {
+        resolve(deleteCount);
+      };
+      transaction.onerror = () => {
+        reject(new Error("Delete keys transaction failed."));
+      };
+    });
+  }
+
+  /**
+   * 通过查询条件删除
+   * @param storeName
+   * @param options
+   * @returns deleteCount
+   */
+  private deleteByCondition(
+    storeName: string,
+    options: {
+      index?: string;
+      keyRange?: IDBKeyRange;
+      direction?: IDBCursorDirection;
+      limit: number;
+    }
+  ): Promise<number> {
+    return new Promise((resolve, reject) => {
+      if (!this.db) {
+        reject(new Error("Database not initialize."));
+        return;
+      }
+
+      const { limit = 30 } = options;
+      const transaction = this.db.transaction(storeName);
+      const store = transaction.objectStore(storeName);
+      const source = options.index ? store.index(options.index) : store;
+      const request = source.openCursor(options.keyRange, options.direction);
+
+      let deleteCount = 0;
+
+      request.onsuccess = (event) => {
+        const cursor = (event.target as IDBRequest<IDBCursorWithValue>).result;
+
+        if (cursor && deleteCount < limit) {
+          cursor.delete();
+          deleteCount++;
+          cursor.continue();
+        } else {
+          resolve(deleteCount);
+        }
+      };
+      transaction.oncomplete = () => {
+        // TODO: 可移除，测试触发时机
+        console.log("transaction complete");
+      };
+
+      request.onerror = () => {
+        reject(new Error("Delete cursor transaction failed."));
+      };
+      transaction.onerror = () => {
+        reject(new Error("Delete transaction failed."));
+      };
+    });
   }
 }
