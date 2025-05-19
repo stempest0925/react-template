@@ -1,3 +1,11 @@
+/**
+ * IndexDBAdapter
+ * 注意事项：
+ * 1. 创建store阶段，建议指定keypath，避免自动生成的自增key，因其无法根据key put更新。
+ * 2. 加入主键数据时，建议以key以string类型为准，避免number、array等其他类型，否则根据key获取时为空。
+ * 3. 目前只针对常用方法进行封装，如果有特殊需求，请获取DB对象，在外部操作实现。
+ */
+
 interface IndexConfig extends IDBIndexParameters {
   name: string;
   keyPath?: string | string[];
@@ -13,6 +21,16 @@ export default class IndexedDBAdapter {
 
   constructor(private dbName: string) {
     this.dbName = dbName;
+  }
+
+  /**
+   * 获取store列表
+   */
+  public get storeList() {
+    if (!this.db) {
+      return [];
+    }
+    return this.db.objectStoreNames;
   }
 
   /**
@@ -97,7 +115,46 @@ export default class IndexedDBAdapter {
     }
   }
 
-  public query(
+  /**
+   * 通过keys查询
+   * @description get系列适合少量精准查询
+   */
+  public queryByKeys(storeName: string, keys: string | string[]): Promise<Record<string, any>[]> {
+    return new Promise((resolve, reject) => {
+      if (!this.db) {
+        reject(new Error("Database not initialize."));
+        return;
+      }
+
+      const _keys = Array.isArray(keys) ? keys : [keys];
+
+      const transaction = this.db.transaction(storeName, "readonly");
+      const store = transaction.objectStore(storeName);
+
+      const result: Record<string, any>[] = [];
+
+      _keys.forEach((key) => {
+        const request = store.get(key);
+        request.onsuccess = (event) => {
+          result.push(request.result);
+        };
+      });
+
+      transaction.oncomplete = () => resolve(result);
+      transaction.onerror = () => {
+        reject(new Error("Query keys transaction failed."));
+      };
+    });
+  }
+
+  /**
+   * 通过条件查询
+   * @param storeName
+   * @param options
+   * @returns data
+   * @description 游标适合大量数据或者复杂查询
+   */
+  public queryByCondition(
     storeName: string,
     options: {
       index?: string;
@@ -144,6 +201,22 @@ export default class IndexedDBAdapter {
     });
   }
 
+  /**
+   * 更新
+   */
+  public put() {}
+
+  /**
+   *通过条件批量更新，比如姓别为男的，某个属性改为xx
+   */
+  public putByCondition() {}
+
+  /**
+   * 添加
+   * @param storeName
+   * @param data
+   * @returns addCount
+   */
   public add<T extends Record<string, any>>(storeName: string, data: T | T[]): Promise<number> {
     return new Promise((resolve, reject) => {
       if (!this.db) {
@@ -184,7 +257,7 @@ export default class IndexedDBAdapter {
    * @param keys
    * @returns deleteCount
    */
-  private deleteByKeys(storeName: string, keys: number | number[]): Promise<number> {
+  private deleteByKeys(storeName: string, keys: string | string[]): Promise<number> {
     return new Promise((resolve, reject) => {
       if (!this.db) {
         reject(new Error("Database not initialize."));

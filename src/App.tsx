@@ -4,7 +4,7 @@ import React from "react";
 // import { fetchCountAsync } from "./features/counter/actions";
 import IndexedDBAdapter from "./utils/Tracker/IndexedDBAdapter";
 const db = new IndexedDBAdapter("test");
-db.initialize({ storeName: "time" });
+db.initialize({ storeName: "time", keyPath: "id" });
 
 function App() {
   // const dispatch = useAppDispatch();
@@ -15,15 +15,21 @@ function App() {
       <h1>this is web app with react lib1</h1>
       <button
         onClick={() => {
-          db.add("time", { value: Date.now() }).then((count) => console.log(count));
+          db.add("time", {
+            id: Date.now().toString().split("").reverse().join("-").slice(0, 5),
+            value: Date.now()
+          }).then((count) => console.log(count));
         }}
       >
         add data
       </button>
 
       <button
-        onClick={() => {
-          db.query("time", {}).then((data) => console.log(data));
+        onClick={async () => {
+          // db.queryByCondition("time", {}).then((data) => console.log(data));
+          const a = await db.queryByKeys("time", ["2-7-6", "5-6-2"]);
+          console.log(a);
+          console.log(db.storeList);
         }}
       >
         query data
