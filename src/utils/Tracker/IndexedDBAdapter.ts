@@ -202,16 +202,6 @@ export default class IndexedDBAdapter {
   }
 
   /**
-   * 更新
-   */
-  public put() {}
-
-  /**
-   *通过条件批量更新，比如姓别为男的，某个属性改为xx
-   */
-  public putByCondition() {}
-
-  /**
    * 添加
    * @param storeName
    * @param data
@@ -344,4 +334,71 @@ export default class IndexedDBAdapter {
       };
     });
   }
+
+  /**
+   * 更新
+   * 暂不处理复合主键
+   */
+  public updateByKeys(
+    storeName: string,
+    keys: string | string[],
+    newData: Record<string, any>
+  ): Promise<number> {
+    return new Promise((resolve, reject) => {
+      if (!this.db) {
+        reject(new Error("Database not initialize."));
+        return;
+      }
+
+      const _keys = Array.isArray(keys) ? keys : [keys];
+
+      const transaction = this.db.transaction(storeName, "readwrite");
+      const store = transaction.objectStore(storeName);
+      const keyPath = store.keyPath;
+
+      let updateCount = 0;
+
+      _keys.forEach(async (key) => {
+        const existingData = await store.get(key);
+        if (!existingData) {
+          console.warn(`Failed to Update key ${key}, not data.`);
+          return;
+        }
+
+        let updateData = { ...existingData, ...newData };
+
+        if (keyPath) {
+          if (!Array.isArray(keyPath)) {
+            updateData = { ...updateData, [keyPath]: key };
+          }
+          // 复合数组的key对象处理
+          //
+        }
+
+        const request = keyPath ? store.put(updateData) : store.put(updateData, key);
+
+        request.onsuccess = () => updateCount++;
+        request.onerror = () => {
+          // TODO: 可记录，错误埋点的警告级别
+          console.warn(`Failed to Update key ${key}.`);
+        };
+      });
+
+      transaction.oncomplete = () => {
+        resolve(updateCount); //其实最好的是记录操作条数和更新的key数组
+      };
+      transaction.onerror = () => {
+        reject(new Error("Update keys transaction failed."));
+      };
+    });
+  }
+
+  /**
+   *通过条件批量更新，比如姓别为男的，某个属性改为xx
+   */
+  public putByCondition(
+    storeName: string,
+    condition: Function | IDBKeyRange,
+    updateCallback: () => void
+  ) {}
 }
