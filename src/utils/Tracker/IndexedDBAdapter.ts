@@ -1,9 +1,9 @@
 /**
  * IndexDBAdapter
  * 注意事项：
- * 1. 创建store阶段，建议指定keypath，避免自动生成的自增key，因其无法根据key put更新。
- * 2. 加入主键数据时，建议以key以string类型为准，避免number、array等其他类型，否则根据key获取时为空。
- * 3. 目前只针对常用方法进行封装，如果有特殊需求，请获取DB对象，在外部操作实现。
+ * 1. 创建阶段，建议指定主键的keypath，并且以简单类型作为主键类型，而不是复合类型，便于方法封装处理。
+ * 2. 操作阶段，加入主键数据时，建议以key以string类型为准，操作归一化，避免number、array等其他类型，否则根据key获取数据时为空。
+ * 3. 目前只针对常用方法进行封装，且不支持复合类型主键以及引用类型主键值，避免方法过于复杂，如果有特殊需求，请获取DB对象，在外部操作实现。
  */
 
 interface IndexConfig extends IDBIndexParameters {
@@ -398,7 +398,59 @@ export default class IndexedDBAdapter {
    */
   public putByCondition(
     storeName: string,
-    condition: Function | IDBKeyRange,
-    updateCallback: () => void
-  ) {}
+    condition: (item: Record<string, any>) => boolean | IDBKeyRange,
+    updateCallback: (item: Record<string, any>) => Record<string, any>
+  ) {
+    return new Promise((resolve, reject) => {
+      if (!this.db) {
+        reject(new Error("Database not initialize."));
+        return;
+      }
+
+      const transaction = this.db.transaction(storeName, "readwrite");
+      const store = transaction.objectStore(storeName);
+      let request: IDBRequest<IDBCursorWithValue | null>;
+      if (condition instanceof IDBKeyRange) {
+        request = store.openCursor(condition);
+      } else if (typeof condition === "function") {
+        request = store.openCursor();
+      } else {
+        reject(new Error("Error condition."));
+        return;
+      }
+
+      let updateCount = 0;
+
+      request.onsuccess = (event) => {
+        const cursor = (event.target as IDBRequest<IDBCursorWithValue>).result;
+        if (!cursor) {
+          resolve(updateCount);
+          return;
+        }
+
+        // 函数条件 & 且不符合的进行跳过
+        if (typeof condition === "function" && !condition(cursor.value)) {
+          cursor.continue();
+          return;
+        }
+
+        const newData = updateCallback(cursor.value);
+        cursor.update({ ...cursor.value, ...newData });
+        updateCount++;
+        cursor.continue();
+      };
+      request.onerror = () => {
+        // TODO: 可记录，错误埋点的警告级别
+        console.warn(`Failed to update.`);
+      };
+
+      transaction.oncomplete = () => {
+        // TODO: 可移除，测试触发时机
+        console.log("transaction complete.");
+      };
+      transaction.onerror = () => {
+        reject(new Error("update transaction failed."));
+      };
+    });
+  }
 }
