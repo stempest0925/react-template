@@ -17,20 +17,28 @@ interface StoreConfig extends IDBObjectStoreParameters {
 type InitializeOptions = StoreConfig | StoreConfig[];
 
 export default class IndexedDBAdapter {
-  private db: IDBDatabase | null = null;
+  protected db: IDBDatabase | null = null;
 
   constructor(private dbName: string) {
     this.dbName = dbName;
   }
 
   /**
-   * 获取store列表
+   * DB检查函数
    */
-  public get storeList() {
-    if (!this.db) {
-      return [];
-    }
-    return this.db.objectStoreNames;
+  private assertDBReady(): asserts this is this & { db: IDBDatabase } {
+    if (!this.db) throw new Error("Database not initialize.");
+  }
+
+  private getObjectStore(storeName: string, mode: IDBTransactionMode = "readonly"): IDBObjectStore {
+    this.assertDBReady();
+    const transaction = this.db.transaction(storeName, mode);
+    const store = transaction.objectStore(storeName);
+
+    transaction.oncomplete = () => {};
+    transaction.onerror = () => {};
+
+    return store;
   }
 
   /**
@@ -396,29 +404,24 @@ export default class IndexedDBAdapter {
   /**
    *通过条件批量更新，比如姓别为男的，某个属性改为xx
    */
-  public putByCondition(
+  public updateByCondition<T>(
     storeName: string,
-    condition: (item: Record<string, any>) => boolean | IDBKeyRange,
-    updateCallback: (item: Record<string, any>) => Record<string, any>
-  ) {
-    return new Promise((resolve, reject) => {
-      if (!this.db) {
-        reject(new Error("Database not initialize."));
-        return;
-      }
+    condition: ((item: T) => boolean) | IDBKeyRange,
+    updateCallback: (item: T) => Partial<T>
+  ): Promise<number> {
+    const store = this.getObjectStore(storeName, "readwrite");
+    const keyPath = store.keyPath;
 
-      const transaction = this.db.transaction(storeName, "readwrite");
-      const store = transaction.objectStore(storeName);
+    return new Promise((resolve, reject) => {
       let request: IDBRequest<IDBCursorWithValue | null>;
+
       if (condition instanceof IDBKeyRange) {
         request = store.openCursor(condition);
       } else if (typeof condition === "function") {
         request = store.openCursor();
       } else {
-        reject(new Error("Error condition."));
-        return;
+        throw new Error("Invalid condition type.");
       }
-
       let updateCount = 0;
 
       request.onsuccess = (event) => {
@@ -434,23 +437,42 @@ export default class IndexedDBAdapter {
           return;
         }
 
-        const newData = updateCallback(cursor.value);
-        cursor.update({ ...cursor.value, ...newData });
+        const newData = this.protectedPrimaryKey(
+          cursor.value,
+          updateCallback(cursor.value),
+          keyPath
+        );
+        cursor.update(newData);
         updateCount++;
         cursor.continue();
       };
-      request.onerror = () => {
-        // TODO: 可记录，错误埋点的警告级别
-        console.warn(`Failed to update.`);
-      };
-
-      transaction.oncomplete = () => {
-        // TODO: 可移除，测试触发时机
-        console.log("transaction complete.");
-      };
-      transaction.onerror = () => {
-        reject(new Error("update transaction failed."));
-      };
+      request.onerror = () => reject(request.error);
     });
+  }
+
+  /**
+   * 保护主键
+   * @param existingData
+   * @param newData
+   * @param keyPath
+   * @returns
+   */
+  private protectedPrimaryKey<T extends Record<string, any>>(
+    existingData: T,
+    newData: Partial<T>,
+    keyPath: string | string[]
+  ): T {
+    if (!keyPath) return { ...existingData, ...newData };
+
+    const protectedData = { ...newData };
+    const paths = Array.isArray(keyPath) ? keyPath : [keyPath];
+
+    paths.forEach((path) => {
+      if (protectedData.hasOwnProperty(path)) {
+        delete protectedData[path];
+      }
+    });
+
+    return { ...existingData, ...protectedData };
   }
 }
