@@ -24,21 +24,30 @@ export default class IndexedDBAdapter {
   }
 
   /**
-   * DB检查函数
+   * DB检查
    */
   private assertDBReady(): asserts this is this & { db: IDBDatabase } {
     if (!this.db) throw new Error("Database not initialize.");
   }
 
-  private getObjectStore(storeName: string, mode: IDBTransactionMode = "readonly"): IDBObjectStore {
+  /**
+   * 获取store对象
+   * @param storeName
+   * @param mode
+   * @returns { transaction, store }
+   */
+  private getObjectStore(
+    storeName: string,
+    mode: IDBTransactionMode = "readonly"
+  ): { transaction: IDBTransaction; store: IDBObjectStore } {
     this.assertDBReady();
     const transaction = this.db.transaction(storeName, mode);
     const store = transaction.objectStore(storeName);
 
-    transaction.oncomplete = () => {};
-    transaction.onerror = () => {};
+    // transaction.oncomplete = () => {};
+    // transaction.onerror = () => {};
 
-    return store;
+    return { transaction, store };
   }
 
   /**
@@ -49,8 +58,7 @@ export default class IndexedDBAdapter {
     if (this.db) return this.db;
 
     try {
-      // 参数归一化处理
-      const _options = Array.isArray(options) ? options : [options];
+      const _options = Array.isArray(options) ? options : [options]; // 参数归一化处理
 
       this.db = await this.openDatabase(_options);
       return this.db;
@@ -124,110 +132,16 @@ export default class IndexedDBAdapter {
   }
 
   /**
-   * 通过keys查询
-   * @description get系列适合少量精准查询
-   */
-  public queryByKeys(storeName: string, keys: string | string[]): Promise<Record<string, any>[]> {
-    return new Promise((resolve, reject) => {
-      if (!this.db) {
-        reject(new Error("Database not initialize."));
-        return;
-      }
-
-      const _keys = Array.isArray(keys) ? keys : [keys];
-
-      const transaction = this.db.transaction(storeName, "readonly");
-      const store = transaction.objectStore(storeName);
-
-      const result: Record<string, any>[] = [];
-
-      _keys.forEach((key) => {
-        const request = store.get(key);
-        request.onsuccess = (event) => {
-          result.push(request.result);
-        };
-      });
-
-      transaction.oncomplete = () => resolve(result);
-      transaction.onerror = () => {
-        reject(new Error("Query keys transaction failed."));
-      };
-    });
-  }
-
-  /**
-   * 通过条件查询
-   * @param storeName
-   * @param options
-   * @returns data
-   * @description 游标适合大量数据或者复杂查询
-   */
-  public queryByCondition(
-    storeName: string,
-    options: {
-      index?: string;
-      keyRange?: IDBKeyRange;
-      direction?: IDBCursorDirection;
-      limit?: number;
-    }
-  ): Promise<Record<string, any>[]> {
-    return new Promise((resolve, reject) => {
-      if (!this.db) {
-        reject(new Error("Database not initialize."));
-        return;
-      }
-
-      const { limit = 30 } = options;
-      const transaction = this.db.transaction(storeName, "readonly");
-      const store = transaction.objectStore(storeName);
-      const source = options.index ? store.index(options.index) : store;
-      const request = source.openCursor(options.keyRange, options.direction);
-
-      const queryData: Record<string, any>[] = [];
-
-      request.onsuccess = (event) => {
-        const cursor = (event.target as IDBRequest<IDBCursorWithValue>).result;
-
-        if (cursor && queryData.length < limit) {
-          queryData.push(cursor.value);
-          cursor.continue();
-        } else {
-          resolve(queryData);
-        }
-      };
-      transaction.oncomplete = () => {
-        // TODO: 可移除，测试触发时机
-        console.log("transaction complete");
-      };
-
-      request.onerror = () => {
-        reject(new Error("Query cursor transaction failed."));
-      };
-      transaction.onerror = () => {
-        reject(new Error("Query transaction failed."));
-      };
-    });
-  }
-
-  /**
-   * 添加
+   * 添加数据
    * @param storeName
    * @param data
    * @returns addCount
    */
   public add<T extends Record<string, any>>(storeName: string, data: T | T[]): Promise<number> {
+    const _data = Array.isArray(data) ? data : [data]; //参数归一化
+    const { transaction, store } = this.getObjectStore(storeName, "readwrite");
+
     return new Promise((resolve, reject) => {
-      if (!this.db) {
-        reject(new Error("Database not initialize."));
-        return;
-      }
-
-      // 参数归一化
-      const _data = Array.isArray(data) ? data : [data];
-
-      const transaction = this.db.transaction(storeName, "readwrite");
-      const store = transaction.objectStore(storeName);
-
       let addCount = 0;
 
       _data.forEach((dataItem) => {
@@ -255,19 +169,11 @@ export default class IndexedDBAdapter {
    * @param keys
    * @returns deleteCount
    */
-  private deleteByKeys(storeName: string, keys: string | string[]): Promise<number> {
+  public deleteByKeys(storeName: string, keys: string | string[]): Promise<number> {
+    const _keys = Array.isArray(keys) ? keys : [keys]; // 参数归一化
+    const { transaction, store } = this.getObjectStore(storeName, "readwrite");
+
     return new Promise((resolve, reject) => {
-      if (!this.db) {
-        reject(new Error("Database not initialize."));
-        return;
-      }
-
-      // 参数归一化
-      const _keys = Array.isArray(keys) ? keys : [keys];
-
-      const transaction = this.db.transaction(storeName, "readwrite");
-      const store = transaction.objectStore(storeName);
-
       let deleteCount = 0;
 
       _keys.forEach((key) => {
@@ -290,98 +196,110 @@ export default class IndexedDBAdapter {
   }
 
   /**
-   * 通过查询条件删除
+   * 根据条件删除
    * @param storeName
-   * @param options
-   * @returns deleteCount
+   * @param condition
+   * @param index
+   * @returns
+   * 完成度：90%
+   * 剩余request error返回的处理，以及性能数据的存储
    */
-  private deleteByCondition(
+  public deleteByCondition<T>(
     storeName: string,
-    options: {
-      index?: string;
-      keyRange?: IDBKeyRange;
-      direction?: IDBCursorDirection;
-      limit?: number;
-    }
+    condition: ((item: T) => boolean) | IDBKeyRange,
+    index?: string,
+    BATCH_SIZE: number = 100
   ): Promise<number> {
+    const { store } = this.getObjectStore(storeName, "readwrite");
+
     return new Promise((resolve, reject) => {
-      if (!this.db) {
-        reject(new Error("Database not initialize."));
+      let request: IDBRequest<IDBCursorWithValue | null>;
+
+      if (condition instanceof IDBKeyRange) {
+        // 针对索引的判断和警告，可简略
+        if (index) {
+          if (!store.indexNames.contains(index)) {
+            reject(new Error(`Index ${index} not found in store ${storeName}.`));
+            return;
+          }
+          const source = store.index(index);
+          request = source.openCursor(condition);
+        } else {
+          request = store.openCursor(condition);
+        }
+      } else if (typeof condition === "function") {
+        // 函数条件时不使用索引
+        if (index) {
+          console.warn(`Index '${index}' is ignored when using function condition.`);
+        }
+        request = store.openCursor();
+      } else {
+        reject(new Error("Invalid condition type."));
         return;
       }
 
-      const { limit = 30 } = options;
-      const transaction = this.db.transaction(storeName, "readwrite");
-      const store = transaction.objectStore(storeName);
-      const source = options.index ? store.index(options.index) : store;
-      const request = source.openCursor(options.keyRange, options.direction);
-
+      const startTime = performance.now(); // 性能计算
       let deleteCount = 0;
 
       request.onsuccess = (event) => {
         const cursor = (event.target as IDBRequest<IDBCursorWithValue>).result;
 
-        if (cursor && deleteCount < limit) {
-          cursor.delete();
-          deleteCount++;
-          cursor.continue();
-        } else {
+        if (!cursor) {
+          console.log(`Deleted ${deleteCount} items in ${performance.now() - startTime}ms`);
           resolve(deleteCount);
+          return;
+        }
+
+        // 函数条件 & 不符合条件的进行跳过
+        if (typeof condition === "function" && !condition(cursor.value)) {
+          cursor.continue();
+          return;
+        }
+
+        cursor.delete();
+        deleteCount++;
+
+        // 分块处理，避免大数据量下处理阻塞线程
+        if (deleteCount % BATCH_SIZE === 0) {
+          cursor.advance(BATCH_SIZE);
+        } else {
+          cursor.continue();
         }
       };
-      transaction.oncomplete = () => {
-        // TODO: 可移除，测试触发时机
-        console.log("transaction complete");
-      };
-
       request.onerror = () => {
-        reject(new Error("Delete cursor transaction failed."));
-      };
-      transaction.onerror = () => {
-        reject(new Error("Delete transaction failed."));
+        // TODO: 可记录，错误埋点的警告级别
+        console.warn(`Failed to delete.`);
       };
     });
   }
 
   /**
-   * 更新
-   * 暂不处理复合主键
+   * 根据主键更新
+   * @param storeName
+   * @param keys
+   * @param newData
+   * @returns updateCount
    */
   public updateByKeys(
     storeName: string,
     keys: string | string[],
     newData: Record<string, any>
   ): Promise<number> {
+    const { transaction, store } = this.getObjectStore(storeName, "readwrite");
+    const keyPath = store.keyPath;
+    const _keys = Array.isArray(keys) ? keys : [keys];
+
     return new Promise((resolve, reject) => {
-      if (!this.db) {
-        reject(new Error("Database not initialize."));
-        return;
-      }
-
-      const _keys = Array.isArray(keys) ? keys : [keys];
-
-      const transaction = this.db.transaction(storeName, "readwrite");
-      const store = transaction.objectStore(storeName);
-      const keyPath = store.keyPath;
-
       let updateCount = 0;
 
       _keys.forEach(async (key) => {
         const existingData = await store.get(key);
         if (!existingData) {
-          console.warn(`Failed to Update key ${key}, not data.`);
+          console.warn(`Failed to Update key ${key}, it's not data.`);
           return;
         }
 
-        let updateData = { ...existingData, ...newData };
-
-        if (keyPath) {
-          if (!Array.isArray(keyPath)) {
-            updateData = { ...updateData, [keyPath]: key };
-          }
-          // 复合数组的key对象处理
-          //
-        }
+        const updateData = this.protectedPrimaryKey(existingData, newData, keyPath);
 
         const request = keyPath ? store.put(updateData) : store.put(updateData, key);
 
@@ -393,23 +311,24 @@ export default class IndexedDBAdapter {
       });
 
       transaction.oncomplete = () => {
-        resolve(updateCount); //其实最好的是记录操作条数和更新的key数组
-      };
-      transaction.onerror = () => {
-        reject(new Error("Update keys transaction failed."));
+        resolve(updateCount);
       };
     });
   }
 
   /**
-   *通过条件批量更新，比如姓别为男的，某个属性改为xx
+   * 根据条件更新
+   * @param storeName
+   * @param condition
+   * @param updateCallback
+   * @returns updateCount
    */
   public updateByCondition<T>(
     storeName: string,
     condition: ((item: T) => boolean) | IDBKeyRange,
     updateCallback: (item: T) => Partial<T>
   ): Promise<number> {
-    const store = this.getObjectStore(storeName, "readwrite");
+    const { store } = this.getObjectStore(storeName, "readwrite");
     const keyPath = store.keyPath;
 
     return new Promise((resolve, reject) => {
@@ -420,23 +339,27 @@ export default class IndexedDBAdapter {
       } else if (typeof condition === "function") {
         request = store.openCursor();
       } else {
-        throw new Error("Invalid condition type.");
+        reject(new Error("Invalid condition type."));
+        return;
       }
+
       let updateCount = 0;
 
       request.onsuccess = (event) => {
         const cursor = (event.target as IDBRequest<IDBCursorWithValue>).result;
+        // 更新完成 & 退出
         if (!cursor) {
           resolve(updateCount);
           return;
         }
 
-        // 函数条件 & 且不符合的进行跳过
+        // 函数条件 & 不符合条件的进行跳过
         if (typeof condition === "function" && !condition(cursor.value)) {
           cursor.continue();
           return;
         }
 
+        // 更新数据
         const newData = this.protectedPrimaryKey(
           cursor.value,
           updateCallback(cursor.value),
@@ -451,7 +374,7 @@ export default class IndexedDBAdapter {
   }
 
   /**
-   * 保护主键
+   * 保护主键，避免更新数据覆盖主键导致更新出错
    * @param existingData
    * @param newData
    * @param keyPath
@@ -465,7 +388,7 @@ export default class IndexedDBAdapter {
     if (!keyPath) return { ...existingData, ...newData };
 
     const protectedData = { ...newData };
-    const paths = Array.isArray(keyPath) ? keyPath : [keyPath];
+    const paths = Array.isArray(keyPath) ? keyPath : [keyPath]; // 复合主键处理与归一化
 
     paths.forEach((path) => {
       if (protectedData.hasOwnProperty(path)) {
@@ -474,5 +397,87 @@ export default class IndexedDBAdapter {
     });
 
     return { ...existingData, ...protectedData };
+  }
+
+  /**
+   * 根据主键查询
+   * @param storeName
+   * @param keys
+   * @returns result
+   * @description get系列适合少量精准查询
+   */
+  public queryByKeys<T extends Record<string, any>>(
+    storeName: string,
+    keys: string | string[]
+  ): Promise<T[]> {
+    const _keys = Array.isArray(keys) ? keys : [keys];
+    const { transaction, store } = this.getObjectStore(storeName);
+
+    return new Promise((resolve, reject) => {
+      const result: T[] = [];
+
+      _keys.forEach((key) => {
+        const request = store.get(key);
+        request.onsuccess = (event) => {
+          result.push(request.result);
+        };
+        request.onerror = () => {
+          console.warn(`Failed to query data by key ${key}.`);
+        };
+      });
+
+      transaction.oncomplete = () => resolve(result);
+      transaction.onerror = () => reject(new Error("Execute queryByKeys transaction failed."));
+    });
+  }
+
+  /**
+   * 根据条件查询
+   * @param storeName
+   * @param options
+   * @returns result
+   * @description 游标适合大量数据或者复杂查询
+   */
+  public queryByCondition(
+    storeName: string,
+    options: Partial<{
+      index: string;
+      keyRange: IDBKeyRange;
+      direction: IDBCursorDirection;
+      limit: number;
+    }>
+  ): Promise<Record<string, any>[]> {
+    const { limit = 30 } = options;
+    const { transaction, store } = this.getObjectStore(storeName);
+
+    return new Promise((resolve, reject) => {
+      const source = options.index ? store.index(options.index) : store;
+      const request = source.openCursor(options.keyRange, options.direction);
+
+      const result: Record<string, any>[] = [];
+      const startTime = performance.now();
+
+      request.onsuccess = (event) => {
+        const cursor = (event.target as IDBRequest<IDBCursorWithValue>).result;
+
+        if (cursor && result.length < limit) {
+          result.push(cursor.value);
+          cursor.continue();
+        } else {
+          console.log(`Execute query in ${performance.now() - startTime}ms`);
+          resolve(result);
+          return;
+        }
+      };
+      request.onerror = () => {
+        reject(new Error("Query cursor transaction failed."));
+      };
+
+      transaction.oncomplete = () => {
+        // TODO: 可移除，测试触发时机
+        console.log("transaction complete");
+      };
+      transaction.onerror = () => reject(new Error("Execute queryByCondition transaction failed."));
+    });
   }
 }
